@@ -15,6 +15,8 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
+from fontTools.ttLib import TTFont
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from repo_paths import DEPENDS_GL_SCREEN_SDK, DIST_DIR, OVERLAY_DIR, PACKAGE_SCRIPTS_DIR
@@ -30,9 +32,11 @@ DEFAULT_PACKAGE = "gl-screen-mudi7-i18n-zh-cn"
 DEFAULT_MAINTAINER = "ZJJCKA <514414031@qq.com>"
 DEFAULT_HOMEPAGE = "https://github.com/ZJJCKA/gl-screen-mudi7-i18n-zh-cn"
 DEFAULT_CONFLICTS = "gl-screen-i18n-zh-cn, gl-screen-e5800-i18n-zh-cn"
+EXTRA_DYNAMIC_TEXT = "中国移动中国联通中国电信中国广电"
 DEFAULT_DESCRIPTION = (
     "GL.iNet Mudi7 screen Simplified Chinese language pack.\n"
-    " Installs the translated language file and one shared full Chinese font.\n"
+    " Installs the translated language file and one shared static-UI font subset.\n"
+    " Uses the stock complete Chinese font as fallback for dynamic content.\n"
     " Localizes both lock-screen date styles, including the final day suffix.\n"
     " Localizes the hard-coded Ethernet navigation label without changing ELF size.\n"
     " Backs up every modified stock file and restores it on package removal.\n"
@@ -311,6 +315,22 @@ def verify_ipk(
     for name in ttf_names:
         if data[name][1] != 0o644:
             raise ValueError(f"font mode must be 0644: {name}")
+        if len(data[name][0]) > 300_000:
+            raise ValueError(f"UI font was not subset: {name} ({len(data[name][0])} bytes)")
+
+        font = TTFont(io.BytesIO(data[name][0]))
+        cmap = set(font.getBestCmap() or {})
+        required = {
+            ord(character)
+            for character in language_text + EXTRA_DYNAMIC_TEXT
+            if ord(character) >= 0x20
+        }
+        missing = sorted(required.difference(cmap))
+        if missing:
+            raise ValueError(
+                f"UI font lacks required glyphs: {''.join(chr(value) for value in missing[:20])}"
+            )
+        font.close()
     referenced_fonts = set(
         re.findall(
             r'^FONT_(?:MEDIUM|BOLD|SEMIBOLD|MONO_MEDIUM|CN_MEDIUM) "([^"]+)"$',
