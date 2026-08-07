@@ -1,0 +1,34 @@
+#!/bin/sh
+# Back up the stock Mudi7 files before postinst applies the Chinese overlay.
+[ "${IPKG_NO_SCRIPT}" = "1" ] && exit 0
+
+TEXT="${GL_SCREEN_TEXT:-/etc/gl_screen/language/text/default}"
+TEXT_BACKUP="${GL_SCREEN_TEXT_BACKUP:-${TEXT}.mudi7-zh-cn.orig}"
+STYLE2_KEY=LOCK_SCREEN_DATA_STYLE2_DAY_LABEL_FORMAT
+STYLE2_LAYOUT="${STYLE2_LAYOUT:-/etc/gl_screen/config/reference/dpr/layout}"
+STYLE2_STATE="${STYLE2_STATE:-${STYLE2_LAYOUT}.mudi7-zh-cn.style2-original}"
+GL_SCREEN_BIN="${GL_SCREEN_BIN:-/usr/bin/gl_screen}"
+GL_SCREEN_BIN_BACKUP="${GL_SCREEN_BIN_BACKUP:-${GL_SCREEN_BIN}.mudi7-zh-cn.orig}"
+
+case "$1" in
+install)
+	if [ ! -f "$TEXT_BACKUP" ] && [ -f "$TEXT" ]; then
+		cp -p "$TEXT" "$TEXT_BACKUP"
+	fi
+	if [ ! -f "$GL_SCREEN_BIN_BACKUP" ] && [ -f "$GL_SCREEN_BIN" ]; then
+		cp -p "$GL_SCREEN_BIN" "$GL_SCREEN_BIN_BACKUP"
+	fi
+	;;
+upgrade)
+	# Keep the first stock backups so upgrades never replace them with patched files.
+	;;
+esac
+
+if [ ! -f "$STYLE2_STATE" ] && [ -f "$STYLE2_LAYOUT" ]; then
+	grep -m 1 "^${STYLE2_KEY} " "$STYLE2_LAYOUT" > "$STYLE2_STATE"
+fi
+
+# Remove state files created by older experimental packages.
+rm -f /etc/gl_screen/.gl-screen-e5800-i18n-zh-cn.style2-format
+
+exit 0

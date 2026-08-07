@@ -1,0 +1,163 @@
+#!/bin/sh
+[ "${IPKG_NO_SCRIPT}" = "1" ] && exit 0
+
+TEXT="${GL_SCREEN_TEXT:-/etc/gl_screen/language/text/default}"
+SRC="${GL_SCREEN_TEXT_SOURCE:-/etc/gl_screen/language/text/default.mudi7-zh-cn}"
+STYLE2_KEY=LOCK_SCREEN_DATA_STYLE2_DAY_LABEL_FORMAT
+STYLE2_LAYOUT="${STYLE2_LAYOUT:-/etc/gl_screen/config/reference/dpr/layout}"
+GL_SCREEN_BIN="${GL_SCREEN_BIN:-/usr/bin/gl_screen}"
+PACKAGE_TAG=gl-screen-mudi7-i18n-zh-cn
+
+log_message()
+{
+	logger -t "$PACKAGE_TAG" "$*" 2>/dev/null || true
+}
+
+patch_style2_date()
+{
+	local line tmp
+
+	[ -f "$STYLE2_LAYOUT" ] || return 0
+	line="$(grep -n -m 1 "^${STYLE2_KEY} " "$STYLE2_LAYOUT" | cut -d: -f1)"
+	[ -n "$line" ] || return 0
+
+	tmp="${STYLE2_LAYOUT}.mudi7-zh-cn.tmp.$$"
+	head -n $((line - 1)) "$STYLE2_LAYOUT" > "$tmp" || return 1
+	# Style 2: month is supplied by MONTH_* (for example 8月), then day + 日.
+	printf 'LOCK_SCREEN_DATA_STYLE2_DAY_LABEL_FORMAT "%%s%%d\346\227\245 "\n' >> "$tmp"
+	tail -n +$((line + 1)) "$STYLE2_LAYOUT" >> "$tmp" || return 1
+	chmod 0644 "$tmp"
+	mv "$tmp" "$STYLE2_LAYOUT"
+}
+
+find_ethernet_marker_offset()
+{
+	local old candidate offset
+
+	old="$1"
+
+	# This is the offset in the known Mudi7 reference binary. Verify the
+	# bytes before using it so a different firmware binary is never patched
+	# blindly.
+	candidate=1597136
+	if [ "$(dd if="$GL_SCREEN_BIN" bs=1 skip="$candidate" count=20 2>/dev/null)" = "$old" ]; then
+		echo "$candidate"
+		return 0
+	fi
+
+	# BusyBox grep does not provide GNU grep's -a/-b byte-offset options.
+	# Prefer strings when available, then fall back to a portable od+awk scan.
+	if command -v strings >/dev/null 2>&1; then
+		offset="$(strings -a -t d "$GL_SCREEN_BIN" 2>/dev/null |
+			awk '$1 ~ /^[0-9]+$/ && index($0, "Go To Ethernet Ports") { print $1; exit }')"
+		if [ -n "$offset" ] &&
+		   [ "$(dd if="$GL_SCREEN_BIN" bs=1 skip="$offset" count=20 2>/dev/null)" = "$old" ]; then
+			echo "$offset"
+			return 0
+		fi
+	fi
+
+	if command -v od >/dev/null 2>&1; then
+		offset="$(od -An -v -t u1 "$GL_SCREEN_BIN" 2>/dev/null | awk '
+			BEGIN {
+				split("71 111 32 84 111 32 69 116 104 101 114 110 101 116 32 80 111 114 116 115", pattern, " ")
+				matched = 0
+				position = 0
+			}
+			{
+				for (i = 1; i <= NF; i++) {
+					byte = $i
+					if (byte == pattern[matched + 1]) {
+						matched++
+						if (matched == 20) {
+							print position - 19
+							exit
+						}
+					} else {
+						matched = (byte == pattern[1]) ? 1 : 0
+					}
+					position++
+				}
+			}')"
+		if [ -n "$offset" ] &&
+		   [ "$(dd if="$GL_SCREEN_BIN" bs=1 skip="$offset" count=20 2>/dev/null)" = "$old" ]; then
+			echo "$offset"
+			return 0
+		fi
+	fi
+
+	return 1
+}
+
+patch_ethernet_button()
+{
+	local old new offset tmp patch size actual
+
+	old='Go To Ethernet Ports'
+	new='以太网端口'
+	[ -f "$GL_SCREEN_BIN" ] || {
+		log_message "gl_screen binary not found; Ethernet button patch skipped"
+		return 0
+	}
+
+	offset="$(find_ethernet_marker_offset "$old")"
+	if [ -z "$offset" ]; then
+		log_message "Go To Ethernet Ports marker not found; binary left unchanged"
+		return 0
+	fi
+
+	tmp="${GL_SCREEN_BIN}.mudi7-zh-cn.tmp.$$"
+	patch="/tmp/gl-screen-mudi7-ethernet.$$.bin"
+	cp -p "$GL_SCREEN_BIN" "$tmp" || return 1
+
+	# The stock literal occupies 20 bytes. Chinese text is 15 UTF-8 bytes;
+	# five NUL bytes keep the ELF size and every following offset unchanged.
+	printf '以太网端口\000\000\000\000\000' > "$patch"
+	size="$(wc -c < "$patch" | tr -d ' ')"
+	if [ "$size" != "20" ]; then
+		rm -f "$tmp" "$patch"
+		log_message "Ethernet button patch has invalid byte length: $size"
+		return 1
+	fi
+
+	dd if="$patch" of="$tmp" bs=1 seek="$offset" conv=notrunc 2>/dev/null || {
+		rm -f "$tmp" "$patch"
+		return 1
+	}
+	rm -f "$patch"
+
+	actual="$(dd if="$tmp" bs=1 skip="$offset" count=15 2>/dev/null)"
+	if [ "$actual" != "$new" ]; then
+		rm -f "$tmp"
+		log_message "Ethernet button patch verification failed"
+		return 1
+	fi
+
+	chmod 0755 "$tmp"
+	mv "$tmp" "$GL_SCREEN_BIN"
+	log_message "Ethernet button localized at byte offset $offset"
+}
+
+restart_gl_screen_cleanly()
+{
+	[ -x /etc/init.d/gl_screen ] || return 0
+
+	/etc/init.d/gl_screen stop
+	sleep 1
+	killall gl_screen 2>/dev/null || true
+	# gl_screen generates its active configuration under this exact tmp path.
+	# Recreate it from the newly localized files on the next start.
+	rm -rf /tmp/gl_screen
+	/etc/init.d/gl_screen start
+}
+
+if [ -f "$SRC" ]; then
+	cp "$SRC" "$TEXT"
+	chmod 0644 "$TEXT"
+fi
+
+patch_style2_date || exit 1
+patch_ethernet_button || exit 1
+
+restart_gl_screen_cleanly
+exit 0

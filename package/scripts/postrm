@@ -1,0 +1,54 @@
+#!/bin/sh
+# Restore all stock Mudi7 files when the language pack is removed.
+[ "${IPKG_NO_SCRIPT}" = "1" ] && exit 0
+
+TEXT="${GL_SCREEN_TEXT:-/etc/gl_screen/language/text/default}"
+TEXT_BACKUP="${GL_SCREEN_TEXT_BACKUP:-${TEXT}.mudi7-zh-cn.orig}"
+STYLE2_KEY=LOCK_SCREEN_DATA_STYLE2_DAY_LABEL_FORMAT
+STYLE2_LAYOUT="${STYLE2_LAYOUT:-/etc/gl_screen/config/reference/dpr/layout}"
+STYLE2_STATE="${STYLE2_STATE:-${STYLE2_LAYOUT}.mudi7-zh-cn.style2-original}"
+GL_SCREEN_BIN="${GL_SCREEN_BIN:-/usr/bin/gl_screen}"
+GL_SCREEN_BIN_BACKUP="${GL_SCREEN_BIN_BACKUP:-${GL_SCREEN_BIN}.mudi7-zh-cn.orig}"
+
+restart_gl_screen_cleanly()
+{
+	[ -x /etc/init.d/gl_screen ] || return 0
+
+	/etc/init.d/gl_screen stop
+	sleep 1
+	killall gl_screen 2>/dev/null || true
+	rm -rf /tmp/gl_screen
+	/etc/init.d/gl_screen start
+}
+
+case "$1" in
+remove|purge)
+	if [ -f "$TEXT_BACKUP" ]; then
+		cp -p "$TEXT_BACKUP" "$TEXT"
+		rm -f "$TEXT_BACKUP"
+	fi
+
+	if [ -f "$STYLE2_STATE" ] && [ -f "$STYLE2_LAYOUT" ]; then
+		line="$(grep -n -m 1 "^${STYLE2_KEY} " "$STYLE2_LAYOUT" 2>/dev/null | cut -d: -f1)"
+		if [ -n "$line" ]; then
+			tmp="${STYLE2_LAYOUT}.mudi7-zh-cn.tmp.$$"
+			head -n $((line - 1)) "$STYLE2_LAYOUT" > "$tmp"
+			cat "$STYLE2_STATE" >> "$tmp"
+			tail -n +$((line + 1)) "$STYLE2_LAYOUT" >> "$tmp"
+			chmod 0644 "$tmp"
+			mv "$tmp" "$STYLE2_LAYOUT"
+		fi
+		rm -f "$STYLE2_STATE"
+	fi
+
+	if [ -f "$GL_SCREEN_BIN_BACKUP" ]; then
+		cp -p "$GL_SCREEN_BIN_BACKUP" "$GL_SCREEN_BIN"
+		rm -f "$GL_SCREEN_BIN_BACKUP"
+	fi
+
+	rm -f /etc/gl_screen/.gl-screen-e5800-i18n-zh-cn.style2-format
+	restart_gl_screen_cleanly
+	;;
+esac
+
+exit 0

@@ -1,0 +1,53 @@
+{
+  "_comment": "Vertical metrics from stock GL.iNet Mudi7 language/ttf (see THIRD_PARTY_NOTICES.md)",
+  "default_medium": {
+    "ascent": 1025,
+    "descent": -275,
+    "lineGap": 0,
+    "sTypoAscender": 1025,
+    "sTypoDescender": -275,
+    "sTypoLineGap": 0,
+    "usWinAscent": 1120,
+    "usWinDescent": 275
+  },
+  "default_semibold": {
+    "ascent": 1025,
+    "descent": -275,
+    "lineGap": 0,
+    "sTypoAscender": 1025,
+    "sTypoDescender": -275,
+    "sTypoLineGap": 0,
+    "usWinAscent": 1120,
+    "usWinDescent": 275
+  },
+  "default_bold": {
+    "ascent": 1025,
+    "descent": -275,
+    "lineGap": 0,
+    "sTypoAscender": 1025,
+    "sTypoDescender": -275,
+    "sTypoLineGap": 0,
+    "usWinAscent": 1120,
+    "usWinDescent": 275
+  },
+  "default_mono_medium": {
+    "ascent": 1025,
+    "descent": -275,
+    "lineGap": 0,
+    "sTypoAscender": 1025,
+    "sTypoDescender": -275,
+    "sTypoLineGap": 0,
+    "usWinAscent": 1025,
+    "usWinDescent": 275
+  },
+  "default_cn_medium": {
+    "ascent": 880,
+    "descent": -120,
+    "lineGap": 1000,
+    "sTypoAscender": 880,
+    "sTypoDescender": -120,
+    "sTypoLineGap": 1000,
+    "usWinAscent": 1060,
+    "usWinDescent": 440
+  }
+}
