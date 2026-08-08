@@ -3,7 +3,7 @@ FONT_MEDIUM "default_medium_tutu_zh-cn"
 FONT_BOLD "default_medium_tutu_zh-cn"
 FONT_SEMIBOLD "default_medium_tutu_zh-cn"
 FONT_MONO_MEDIUM "default_medium_tutu_zh-cn"
-FONT_CN_MEDIUM "default_cn_medium"
+FONT_CN_MEDIUM "default_medium_tutu_zh-cn"
 OPTION_VALUE_LABEL_FONT FONT_MEDIUM
 OPTION_ATTRIBUTE_LABEL_FONT FONT_SEMIBOLD
 TITLE_LABEL_FONT FONT_BOLD
