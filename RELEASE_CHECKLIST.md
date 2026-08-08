@@ -13,6 +13,9 @@ Use this before the first public push. **Git root is this directory** (`gl-scree
 ## Build & QA
 
 - [ ] `python scripts/validate_zh_cn.py` — keys match `sources/en`
+- [ ] Shared UI font is below 300 KB and covers the full dictionary plus four Chinese carrier names
+- [ ] Chinese SSID glyph coverage is intentionally excluded from the packaged subset
+- [ ] `python scripts/test_package_hooks.py --shell /bin/sh` — install/remove hooks pass
 - [ ] GitHub Actions **Build IPK** (`workflow_dispatch`) succeeds
 - [ ] Device has `gl-sdk4-screen-large` at `git-2026.142.39025-c3b9432-1` (`opkg list-installed | grep screen`)
 - [ ] `opkg install` on GL.iNet Mudi7 — no `Malformed package file`; wrong firmware should be **rejected by Depends**

@@ -15,24 +15,39 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
+from fontTools.ttLib import TTFont
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from repo_paths import DEPENDS_GL_SCREEN_SDK, DIST_DIR, OVERLAY_DIR, PACKAGE_SCRIPTS_DIR
+from repo_paths import (
+    DEPENDS_GL_SCREEN_SDK,
+    DIST_DIR,
+    OVERLAY_DIR,
+    PACKAGE_SCRIPTS_DIR,
+    load_extra_glyphs,
+)
 
 ALLOWED_PREFIXES = (
     "etc/gl_screen/language/text/",
     "etc/gl_screen/language/ttf/",
 )
+RUNTIME_EXCLUDED_PATHS = {
+    "etc/gl_screen/language/ttf/README.txt",
+    "etc/gl_screen/language/ttf/license.txt",
+}
 LANG_DEFAULT_REL = Path("etc/gl_screen/language/text/default")
 LANG_PACKAGE_REL = Path("etc/gl_screen/language/text/default.mudi7-zh-cn")
 
 DEFAULT_PACKAGE = "gl-screen-mudi7-i18n-zh-cn"
+OUTPUT_FEATURE_TAG = "hf3500-flow"
 DEFAULT_MAINTAINER = "ZJJCKA <514414031@qq.com>"
 DEFAULT_HOMEPAGE = "https://github.com/ZJJCKA/gl-screen-mudi7-i18n-zh-cn"
 DEFAULT_CONFLICTS = "gl-screen-i18n-zh-cn, gl-screen-e5800-i18n-zh-cn"
+EXTRA_DYNAMIC_TEXT = "中国移动中国联通中国电信中国广电"
 DEFAULT_DESCRIPTION = (
     "GL.iNet Mudi7 screen Simplified Chinese language pack.\n"
-    " Installs the translated language file and one shared full Chinese font.\n"
+    " Installs the translated language file and one shared static-UI font subset.\n"
+    " Covers dynamic SMS/SSID text with 3500 high-frequency Chinese characters.\n"
     " Localizes both lock-screen date styles, including the final day suffix.\n"
     " Localizes the hard-coded Ethernet navigation label without changing ELF size.\n"
     " Backs up every modified stock file and restores it on package removal.\n"
@@ -63,6 +78,8 @@ def iter_payload_files(overlay_root: Path) -> list[Path]:
         rel = path.relative_to(overlay_root).as_posix()
         if not any(rel.startswith(prefix) for prefix in ALLOWED_PREFIXES):
             raise SystemExit(f"Refusing to pack outside language/: {rel}")
+        if rel in RUNTIME_EXCLUDED_PATHS:
+            continue
         files.append(path)
     if not files:
         raise SystemExit(f"No payload files under {overlay_root}")
@@ -289,6 +306,9 @@ def verify_ipk(
             raise ValueError(f"non-Unix line endings in {script}")
 
     data = read_tar_files(outer["data.tar.gz"][0])
+    packaged_docs = sorted(set(data).intersection(RUNTIME_EXCLUDED_PATHS))
+    if packaged_docs:
+        raise ValueError(f"runtime payload contains source-only documentation: {packaged_docs}")
     language_name = LANG_PACKAGE_REL.as_posix()
     if language_name not in data:
         raise ValueError(f"missing packaged language file: {language_name}")
@@ -311,6 +331,43 @@ def verify_ipk(
     for name in ttf_names:
         if data[name][1] != 0o644:
             raise ValueError(f"font mode must be 0644: {name}")
+
+        font = TTFont(io.BytesIO(data[name][0]))
+        cmap = set(font.getBestCmap() or {})
+        glyph_count = len(font.getGlyphOrder())
+        if glyph_count > len(cmap) + 16:
+            raise ValueError(
+                f"UI font retains unused layout-only glyphs: {glyph_count} glyphs, "
+                f"{len(cmap)} mapped codepoints"
+            )
+        missing_hinting = [table for table in ("fpgm", "prep", "cvt ") if table not in font]
+        if missing_hinting:
+            raise ValueError(f"UI font lost TrueType hinting tables: {missing_hinting}")
+        retained_unused_tables = [
+            table
+            for table in ("BASE", "GDEF", "GPOS", "GSUB", "JSTF", "vhea", "vmtx")
+            if table in font
+        ]
+        if retained_unused_tables:
+            raise ValueError(
+                f"UI font retains unused layout tables: {retained_unused_tables}"
+            )
+        required = {
+            ord(character)
+            for character in language_text + EXTRA_DYNAMIC_TEXT + load_extra_glyphs()
+            if ord(character) >= 0x20
+        }
+        missing = sorted(required.difference(cmap))
+        if missing:
+            raise ValueError(
+                f"UI font lacks required glyphs: {''.join(chr(value) for value in missing[:20])}"
+            )
+        unexpected = sorted(cmap.difference(required))
+        if len(unexpected) > 16:
+            raise ValueError(
+                f"UI font was not tightly subset: {len(unexpected)} extra mapped codepoints"
+            )
+        font.close()
     referenced_fonts = set(
         re.findall(
             r'^FONT_(?:MEDIUM|BOLD|SEMIBOLD|MONO_MEDIUM|CN_MEDIUM) "([^"]+)"$',
@@ -319,12 +376,10 @@ def verify_ipk(
         )
     )
     packaged_fonts = {Path(name).stem for name in ttf_names}
-    stock_fonts = {"default_cn_medium"}
-    if referenced_fonts != packaged_fonts | stock_fonts:
+    if referenced_fonts != packaged_fonts:
         raise ValueError(
             f"language font references do not match packaged fonts: "
-            f"refs={sorted(referenced_fonts)}, files={sorted(packaged_fonts)}, "
-            f"stock={sorted(stock_fonts)}"
+            f"refs={sorted(referenced_fonts)}, files={sorted(packaged_fonts)}"
         )
     postinst_text = control["postinst"][0].decode("utf-8")
     for marker in ("%%s%%d\\346\\227\\245", "Go To Ethernet Ports", "以太网端口"):
@@ -381,7 +436,9 @@ def build_ipk(
         control_tar = make_tar_gz(
             control_files, parent_directories(list(control_files)), epoch
         )
-        ipk_path = out_dir / f"{package}_{version}_{architecture}.ipk"
+        ipk_path = out_dir / (
+            f"{package}-{OUTPUT_FEATURE_TAG}_{version}_{architecture}.ipk"
+        )
         ipk_path.write_bytes(make_outer_tar_ipk(control_tar, data_tar, epoch))
 
     digest = verify_ipk(ipk_path, package, version, architecture, depends)
